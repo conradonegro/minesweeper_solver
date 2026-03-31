@@ -402,6 +402,95 @@
         }
     }
 
+    function getUnflaggedNeighborsList(board, i, j) {
+        const list = [];
+        for (let f = 0; f < 8; f++) {
+            const auxR = i + movs[f][0];
+            const auxC = j + movs[f][1];
+            if (auxR >= 0 && auxR < rows && auxC >= 0 && auxC < cols) {
+                if (board.getValue(auxR, auxC) === values.BLANK) {
+                    list.push(`${auxR},${auxC}`);
+                }
+            }
+        }
+        return list;
+    }
+
+    function doubleSetEvaluate(board, safeCells, safeCellsSet) {
+        let progress = false;
+        const boundaryCells = [];
+        
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
+                const val = board.getValue(i, j);
+                if (val >= values.OPEN1 && val <= values.OPEN8) {
+                    const eff = effectiveLabel(board, i, j);
+                    if (eff > 0) {
+                        const nbrs = getUnflaggedNeighborsList(board, i, j);
+                        if (nbrs.length > 0) {
+                            boundaryCells.push({ r: i, c: j, eff: eff, nbrs: nbrs });
+                        }
+                    }
+                }
+            }
+        }
+
+        for (let a = 0; a < boundaryCells.length; a++) {
+            const cellA = boundaryCells[a];
+            for (let b = 0; b < boundaryCells.length; b++) {
+                if (a === b) continue;
+                const cellB = boundaryCells[b];
+                
+                // Chebyshev distance <= 2 checks overlapping vicinity
+                if (Math.max(Math.abs(cellA.r - cellB.r), Math.abs(cellA.c - cellB.c)) > 2) continue;
+
+                // Is A a proper subset of B?
+                if (cellA.nbrs.length > 0 && cellA.nbrs.length < cellB.nbrs.length) {
+                    const isSubset = cellA.nbrs.every(n => cellB.nbrs.includes(n));
+                    if (isSubset) {
+                        const diffMines = cellB.eff - cellA.eff;
+                        const diffSet = cellB.nbrs.filter(n => !cellA.nbrs.includes(n));
+
+                        if (diffSet.length > 0) {
+                            if (diffMines === diffSet.length) {
+                                // All diff elements are MINES
+                                for (const nKey of diffSet) {
+                                    if (!safeCellsSet.has(nKey)) {
+                                        const parts = nKey.split(",");
+                                        const dr = parseInt(parts[0], 10);
+                                        const dc = parseInt(parts[1], 10);
+                                        
+                                        toggleFlagIJ(dr, dc);
+                                        logEvent(`[Double-Set Logic]: Certain mine discovered at (${dr + 1}, ${dc + 1})`);
+                                        board.setValue(dr, dc, values.BOMBFLAGGED);
+                                        board.setClicked(dr, dc, true);
+                                        safeCellsSet.add(nKey);
+                                        progress = true;
+                                    }
+                                }
+                            } else if (diffMines === 0) {
+                                // All diff elements are SAFE
+                                for (const nKey of diffSet) {
+                                    if (!safeCellsSet.has(nKey)) {
+                                        const parts = nKey.split(",");
+                                        const dr = parseInt(parts[0], 10);
+                                        const dc = parseInt(parts[1], 10);
+                                        
+                                        logEvent(`[Double-Set Logic]: Certain safe-cell discovered at (${dr + 1}, ${dc + 1})`);
+                                        safeCells.push(new MineSweeperCell(dr, dc, values.BLANK));
+                                        safeCellsSet.add(nKey);
+                                        progress = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return progress;
+    }
+
     function updateBoard(board) {
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
@@ -540,15 +629,33 @@
 
             // Main loop
             while (!lost && !win) {
-                // If there is no safe choice available, select a fallback strategy from blanks
+                // If there is no safe choice available, evaluate subset logic before guessing
+                if (safeCells.length === 0) {
+                    let doubleSetProgress = doubleSetEvaluate(board, safeCells, safeCellsSet);
+                    
+                    if (doubleSetProgress && safeCells.length === 0) {
+                        // Double-Set only found FLAGS. We must rescan Single-Point conditions first!
+                        for (let i = 0; i < rows; i++) {
+                            for (let j = 0; j < cols; j++) {
+                                const val = board.getValue(i, j);
+                                if (val >= values.OPEN1 && val <= values.OPEN8) {
+                                    if (isAMN(board, i, j)) flagNeighbors(board, i, j, safeCellsSet);
+                                    if (isAFN(board, i, j)) getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Still deadlocked? Execute User Configured Guess Strategy
                 if (safeCells.length === 0) {
                     const randomChoice = await getDeadlockMove(board);
                     if (!randomChoice) {
-                        logEvent("Deadlock: No valid targets found.");
+                        logEvent("Fatal Deadlock: No valid targets found.");
                         break;
                     }
                     if (cfgDeadlockMove !== "wait") {
-                        logEvent(`Forced algorithm guess! Targeting randomly: (${randomChoice.row + 1}, ${randomChoice.column + 1})`);
+                        logEvent(`Forced algorithm guess! Targeting: (${randomChoice.row + 1}, ${randomChoice.column + 1})`);
                     }
                     safeCells.push(randomChoice);
                     safeCellsSet.add(`${randomChoice.row},${randomChoice.column}`);
