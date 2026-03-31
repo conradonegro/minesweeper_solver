@@ -63,6 +63,12 @@
     let rows, cols, mines;
     let DOMNodes = [];
     
+    // Configurations
+    let cfgDelayMs = 15;
+    let cfgFirstMove = "center";
+    let cfgDeadlockMove = "smart";
+    let cfgAutoRestart = true;
+    
     // Statistics
     let numGames = 0, numMoves = 0;
     let totalWins = 0, totalLosses = 0;
@@ -71,13 +77,31 @@
     let totalGuesses = 0, totalMoves = 0;
     let currentRandomChoices = 0;
 
-    // Build the DOM element cache once per game setup to avoid constant document.getElementById
+    // Await User State variables
+    let clickWaiterActive = false;
+    let globalResolveClick = null;
+    let globalRejectClick = null;
+
+    function loadConfig() {
+        const d = document.getElementById("radoConfigDelay");
+        if (d) cfgDelayMs = parseInt(d.value, 10) || 0;
+        
+        const f = document.getElementById("radoConfigFirst");
+        if (f) cfgFirstMove = f.value;
+        
+        const dm = document.getElementById("radoConfigDeadlock");
+        if (dm) cfgDeadlockMove = dm.value;
+        
+        const a = document.getElementById("radoConfigAuto");
+        if (a) cfgAutoRestart = a.checked;
+    }
+
     function initDOMCache() {
         DOMNodes = [];
         for (let i = 0; i < rows; i++) {
             DOMNodes[i] = [];
             for (let j = 0; j < cols; j++) {
-                // DOM mapping in original website is 1-indexed. e.g "1_1" to "16_30"
+                // DOM mapping in original website is 1-indexed
                 DOMNodes[i][j] = document.getElementById(`${i + 1}_${j + 1}`);
             }
         }
@@ -101,7 +125,7 @@
             case "square bombflagged": return values.BOMBFLAGGED;
             case "square bombdeath": return values.BOMBDEATH;
             case "square bombrevealed": return values.BOMBREVEALED;
-            default: return -1000; // '?' or any other unused values
+            default: return -1000;
         }
     }
 
@@ -131,13 +155,12 @@
 
     // Modern dispatch mapping
     function myClick(element, b) {
-        // b = "left" or "right"
         const btnCode = (b === "right") ? 2 : (b === "left" ? 0 : 1);
         const options = { bubbles: true, cancelable: true, button: btnCode };
         
         element.dispatchEvent(new MouseEvent("mousedown", options));
         element.dispatchEvent(new MouseEvent("mouseup", options));
-        // Only emit standard HTTP click for left clicks (for right-clicks, mousedown/up manages flags, or contextmenu is needed)
+        
         if (b === "left") {
             element.dispatchEvent(new MouseEvent("click", options));
         } else if (b === "right") {
@@ -167,7 +190,6 @@
     }
 
     function createControlBox() {
-        // Prevent dupes if injected multiple times
         const existing = document.getElementById("RadoSolverControlBox");
         if (existing) existing.remove();
 
@@ -176,6 +198,34 @@
                 <div id="headerDiv" class="headerDiv">
                     <p class="RadoSolverTitle">RadoSolver Controls</p>
                 </div>
+                <!-- Control Panel configurations -->
+                <div id="cfgDiv" style="font-size: 14px; text-align: left; padding: 10px; padding-bottom: 0px; margin-bottom: 5px;">
+                    <div>
+                        <label title="0 for instant. Adds ms sleep between clicks so you can watch live solving">Yield Delay (ms):</label>
+                        <input type="number" id="radoConfigDelay" value="15" style="width: 50px;">
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label>First Move:</label>
+                        <select id="radoConfigFirst">
+                            <option value="center">Random Center</option>
+                            <option value="corner">Random Corner</option>
+                            <option value="wait">Wait for Click</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label>Deadlock Move:</label>
+                        <select id="radoConfigDeadlock">
+                            <option value="smart">Smart Guess</option>
+                            <option value="random">Pure Random</option>
+                            <option value="wait">Wait for Click</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label>Auto-Restart Loss:</label>
+                        <input type="checkbox" id="radoConfigAuto" checked>
+                    </div>
+                </div>
+
                 <div id="preBodyDiv" class="preBodyDiv">
                     <button id="radoSolverBtn">RadoSolver</button>
                     <button id="clearLogBtn">ClearLog</button>
@@ -190,7 +240,10 @@
         `;
         document.body.insertAdjacentHTML('beforeend', html);
         
-        document.getElementById("radoSolverBtn").addEventListener("click", solveDSSP);
+        // Use an async wrapper to catch rejections (like aborts)
+        document.getElementById("radoSolverBtn").addEventListener("click", () => {
+             solveDSSP().catch(err => logEvent("Info: " + err));
+        });
         document.getElementById("clearLogBtn").addEventListener("click", clearLog);
     }
 
@@ -216,9 +269,50 @@
     }
 
     /*
+     * Custom User Intervention Listeners
+     */
+    function handleBoardClick(e) {
+        if (!clickWaiterActive) return;
+
+        let target = e.target;
+        if (target && target.className && target.className.includes("square")) {
+            // Only capture left-clicks for the algorithm bridge
+            if (e.button !== 0) return; 
+
+            const parts = target.id.split("_");
+            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                const r = parseInt(parts[0], 10) - 1;
+                const c = parseInt(parts[1], 10) - 1;
+                
+                clickWaiterActive = false;
+                const boardEl = document.getElementById("game");
+                if (boardEl) boardEl.removeEventListener("mouseup", handleBoardClick, true);
+
+                logEvent(`User manual target acknowledged: (${r + 1}, ${c + 1})`);
+                if (globalResolveClick) globalResolveClick(new MineSweeperCell(r, c, values.BLANK));
+            }
+        }
+    }
+
+    async function waitForUserClick() {
+        return new Promise((resolve, reject) => {
+            const boardEl = document.getElementById("game");
+            if (!boardEl) {
+                logEvent("Failed to attach user click listener. Falling back to random.");
+                return resolve(null);
+            }
+            
+            logEvent("<strong style='color:orange;'>PAUSED: Waiting for human intervention. Click a square to continue execution.</strong>");
+            clickWaiterActive = true;
+            globalResolveClick = resolve;
+            globalRejectClick = reject;
+            boardEl.addEventListener("mouseup", handleBoardClick, true);
+        });
+    }
+
+    /*
      * Logic Functions
      */
-
     function checkWin(board) {
         let openCount = 0;
         let deathOrRevealedFound = false;
@@ -235,18 +329,7 @@
         }
         
         if (deathOrRevealedFound) return false;
-        // Expected open squares = Total squares - mines
         return openCount === ((rows * cols) - mines);
-    }
-
-    function countCells(board, value) {
-        let r = 0;
-        for (let i = 0; i < rows; i++) {
-            for (let j = 0; j < cols; j++) {
-                if (board.getValue(i, j) === value) r++;
-            }
-        }
-        return r;
     }
 
     function countUnflaggedNeighbors(board, i, j) {
@@ -310,9 +393,9 @@
             if (auxR >= 0 && auxR < rows && auxC >= 0 && auxC < cols) {
                 if (board.getValue(auxR, auxC) === values.BLANK) {
                     toggleFlagIJ(auxR, auxC);
+                    logEvent(`Flagged mine at: (${auxR + 1}, ${auxC + 1})`);
                     board.setValue(auxR, auxC, values.BOMBFLAGGED);
                     board.setClicked(auxR, auxC, true);
-                    // Also prevent this flagged item from being queued as openable
                     safeCellsSet.add(`${auxR},${auxC}`);
                 }
             }
@@ -327,12 +410,9 @@
         }
     }
 
-    function initialMove(board) {
-        // Target an inner region cell roughly near the center optimally
+    function initialMoveCenter(board) {
         const centerR = Math.floor(rows / 2);
         const centerC = Math.floor(cols / 2);
-        // Add a slight randomization to avoid always opening exactly the exact middle
-        // Guard against negative/out-of-bounds just in case board is tiny
         let offsetR = getRndInteger(-1, 2);
         let offsetC = getRndInteger(-1, 2);
         let targetR = Math.max(0, Math.min(rows - 1, centerR + offsetR));
@@ -340,7 +420,36 @@
         return new MineSweeperCell(targetR, targetC, values.BLANK);
     }
 
-    function getRandomMove(board) {
+    async function getInitialMove(board) {
+        if (cfgFirstMove === "wait") {
+            const userMove = await waitForUserClick();
+            if (userMove) return userMove;
+        } else if (cfgFirstMove === "corner") {
+            const corners = [
+                {r: 0, c: 0}, {r: 0, c: cols - 1},
+                {r: rows - 1, c: 0}, {r: rows - 1, c: cols - 1}
+            ];
+            const t = corners[getRndInteger(0, corners.length)];
+            return new MineSweeperCell(t.r, t.c, values.BLANK);
+        }
+        return initialMoveCenter(board);
+    }
+
+    function getRandomMovePure(board) {
+        currentRandomChoices++;
+        const blanks = [];
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
+                if (board.getValue(i, j) === values.BLANK) {
+                    blanks.push(new MineSweeperCell(i, j, values.BLANK));
+                }
+            }
+        }
+        if (blanks.length === 0) return null;
+        return blanks[getRndInteger(0, blanks.length)];
+    }
+
+    function getRandomMoveSmart(board) {
         currentRandomChoices++;
         const blanks = [];
         const corners = [];
@@ -363,7 +472,6 @@
 
         if (blanks.length === 0) return null;
         
-        // Prioritize: Corners -> Edges -> Random purely for statistical odds
         let pool = blanks;
         if (corners.length > 0) pool = corners;
         else if (edges.length > 0) pool = edges;
@@ -371,10 +479,28 @@
         return pool[getRndInteger(0, pool.length)];
     }
 
+    async function getDeadlockMove(board) {
+        if (cfgDeadlockMove === "wait") {
+             const userMove = await waitForUserClick();
+             if (userMove) return userMove;
+        } else if (cfgDeadlockMove === "random") {
+             return getRandomMovePure(board);
+        }
+        return getRandomMoveSmart(board);
+    }
+
     /*
      * Main Executor
      */
     async function solveDSSP() {
+        // Intercept triggers that re-fire while a UI Promise is hovering in mid-air
+        if (clickWaiterActive && globalRejectClick) {
+            clickWaiterActive = false;
+            const boardEl = document.getElementById("game");
+            if (boardEl) boardEl.removeEventListener("mouseup", handleBoardClick, true);
+            globalRejectClick("Aborted due to new play command execution.");
+        }
+
         let board;
         let safeCells = [];
         let safeCellsSet = new Set();
@@ -384,7 +510,7 @@
         let cell;
         let dateStart, dateEnd, gameTime;
 
-        // Clean slate tracking logic per RadoSolver invoke
+        loadConfig();
         clearLog();
         resetStats();
         getBoardSize();
@@ -397,6 +523,10 @@
             questionableCells = [];
             
             newGame();
+            
+            // Re-bind DOM Nodes after new game generation to capture DOM shifts (if any)
+            initDOMCache();
+            
             lost = false;
             win = false;
             numMoves = 0;
@@ -404,18 +534,21 @@
             dateStart = new Date().getTime();
 
             // initial move
-            const iMove = initialMove(board);
+            const iMove = await getInitialMove(board);
             safeCells.push(iMove);
             safeCellsSet.add(`${iMove.row},${iMove.column}`);
 
             // Main loop
             while (!lost && !win) {
-                // If there is no safe choice available, select a random guess from blanks
+                // If there is no safe choice available, select a fallback strategy from blanks
                 if (safeCells.length === 0) {
-                    const randomChoice = getRandomMove(board);
+                    const randomChoice = await getDeadlockMove(board);
                     if (!randomChoice) {
-                        // Deadlock condition or board evaluated out of sync, stop to prevent infinite.
+                        logEvent("Deadlock: No valid targets found.");
                         break;
+                    }
+                    if (cfgDeadlockMove !== "wait") {
+                        logEvent(`Forced algorithm guess! Targeting randomly: (${randomChoice.row + 1}, ${randomChoice.column + 1})`);
                     }
                     safeCells.push(randomChoice);
                     safeCellsSet.add(`${randomChoice.row},${randomChoice.column}`);
@@ -427,9 +560,14 @@
                     const key = `${cell.row},${cell.column}`;
                     safeCellsSet.delete(key); 
                     
+                    logEvent(`Opening cell: (${cell.row + 1}, ${cell.column + 1})`);
                     openIJ(cell.row, cell.column);
                     numMoves++;
                     board.setClicked(cell.row, cell.column, true);
+
+                    if (cfgDelayMs > 0) {
+                        await sleep(cfgDelayMs / 1000);
+                    }
 
                     // Pull fresh data
                     updateBoard(board);
@@ -453,16 +591,13 @@
                                 if (isAFN(board, i, j)) {
                                     getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
                                 } else {
-                                    // Potential targets for deep evaluation against AMN/AFN checks on iter 2
                                     questionableCells.push(new MineSweeperCell(i, j, val));
                                 }
                             }
                         }
                     }
-                } // End safe extraction while block
+                }
 
-                // Evaluate accumulated `questionableCells` across the map sequentially.
-                // Evaluates AMN check (All Mine Neighbors)
                 questionableCells = questionableCells.filter(qCell => {
                     if (isAMN(board, qCell.row, qCell.column)) {
                         flagNeighbors(board, qCell.row, qCell.column, safeCellsSet);
@@ -471,7 +606,6 @@
                     return true;
                 });
 
-                // Evaluate remaining `questionableCells` for AFN check (All Free Neighbors) updates 
                 questionableCells = questionableCells.filter(qCell => {
                     if (isAFN(board, qCell.row, qCell.column)) {
                         getUnmarkedNeighbors(board, qCell.row, qCell.column, safeCells, safeCellsSet);
@@ -502,7 +636,7 @@
             totalGuesses += currentRandomChoices;
             totalMoves += numMoves;
 
-        } while (!win); // Restarts the game if lost until we win
+        } while (!win && cfgAutoRestart);
 
         metricsReport();
     }
@@ -531,7 +665,6 @@
         logEvent("====================");
     }
 
-    // Initialize the UI upon script injection
     createControlBox();
 
 })();
