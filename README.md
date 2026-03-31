@@ -11,7 +11,7 @@ It relies on a mathematical constraint approach known as the Double-Set Single-P
 2. **Add the Script** 
    Copy and paste the exact code snippet below directly into the **URL** field of your new bookmark, then save it:
    ```text
-   javascript:(function(){var t=new Date().getTime();var a=document.createElement("script");a.src="https://conradonegro.github.io/minesweeper_solver/ms_cn.js?v="+t;document.getElementsByTagName("head")[0].appendChild(a);var b=document.createElement("link");b.rel="stylesheet";b.href="https://conradonegro.github.io/minesweeper_solver/style.css?v="+t;document.getElementsByTagName("head")[0].appendChild(b);})();
+   javascript:(function()%7Bvar%20t%3Dnew%20Date().getTime()%3Bvar%20a%3Ddocument.createElement(%22script%22)%3Ba.src%3D%22https%3A%2F%2Fconradonegro.github.io%2Fminesweeper_solver%2Fms_cn.js%3Fv%3D%22%2Bt%3Bdocument.getElementsByTagName(%22head%22)%5B0%5D.appendChild(a)%3Bvar%20b%3Ddocument.createElement(%22link%22)%3Bb.rel%3D%22stylesheet%22%3Bb.href%3D%22https%3A%2F%2Fconradonegro.github.io%2Fminesweeper_solver%2Fstyle.css%3Fv%3D%22%2Bt%3Bdocument.getElementsByTagName(%22head%22)%5B0%5D.appendChild(b)%3B%7D)()%3B
    ```
 3. **Play the Game**
    - Navigate to [Minesweeper Online](https://minesweeperonline.com/).
