@@ -419,6 +419,7 @@
     function doubleSetEvaluate(board, safeCells, safeCellsSet) {
         let progress = false;
         const boundaryCells = [];
+        const knownSets = new Set();
         
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
@@ -428,66 +429,79 @@
                     if (eff > 0) {
                         const nbrs = getUnflaggedNeighborsList(board, i, j);
                         if (nbrs.length > 0) {
-                            boundaryCells.push({ r: i, c: j, eff: eff, nbrs: nbrs });
-                        }
-                    }
-                }
-            }
-        }
-
-        for (let a = 0; a < boundaryCells.length; a++) {
-            const cellA = boundaryCells[a];
-            for (let b = 0; b < boundaryCells.length; b++) {
-                if (a === b) continue;
-                const cellB = boundaryCells[b];
-                
-                // Chebyshev distance <= 2 checks overlapping vicinity
-                if (Math.max(Math.abs(cellA.r - cellB.r), Math.abs(cellA.c - cellB.c)) > 2) continue;
-
-                // Is A a proper subset of B?
-                if (cellA.nbrs.length > 0 && cellA.nbrs.length < cellB.nbrs.length) {
-                    const isSubset = cellA.nbrs.every(n => cellB.nbrs.includes(n));
-                    if (isSubset) {
-                        const diffMines = cellB.eff - cellA.eff;
-                        const diffSet = cellB.nbrs.filter(n => !cellA.nbrs.includes(n));
-
-                        if (diffSet.length > 0) {
-                            if (diffMines === diffSet.length) {
-                                // All diff elements are MINES
-                                for (const nKey of diffSet) {
-                                    if (!safeCellsSet.has(nKey)) {
-                                        const parts = nKey.split(",");
-                                        const dr = parseInt(parts[0], 10);
-                                        const dc = parseInt(parts[1], 10);
-                                        
-                                        toggleFlagIJ(dr, dc);
-                                        logEvent(`[Double-Set Logic]: Certain mine discovered at (${dr + 1}, ${dc + 1})`);
-                                        board.setValue(dr, dc, values.BOMBFLAGGED);
-                                        board.setClicked(dr, dc, true);
-                                        safeCellsSet.add(nKey);
-                                        progress = true;
-                                    }
-                                }
-                            } else if (diffMines === 0) {
-                                // All diff elements are SAFE
-                                for (const nKey of diffSet) {
-                                    if (!safeCellsSet.has(nKey)) {
-                                        const parts = nKey.split(",");
-                                        const dr = parseInt(parts[0], 10);
-                                        const dc = parseInt(parts[1], 10);
-                                        
-                                        logEvent(`[Double-Set Logic]: Certain safe-cell discovered at (${dr + 1}, ${dc + 1})`);
-                                        safeCells.push(new MineSweeperCell(dr, dc, values.BLANK));
-                                        safeCellsSet.add(nKey);
-                                        progress = true;
-                                    }
-                                }
+                            nbrs.sort();
+                            const sig = nbrs.join('|');
+                            if (!knownSets.has(sig)) {
+                                knownSets.add(sig);
+                                boundaryCells.push({ eff: eff, nbrs: nbrs });
                             }
                         }
                     }
                 }
             }
         }
+
+        function processSubset(subSetCell, superSetCell) {
+            if (subSetCell.nbrs.length > 0 && subSetCell.nbrs.length < superSetCell.nbrs.length) {
+                const isSubset = subSetCell.nbrs.every(n => superSetCell.nbrs.includes(n));
+                if (isSubset) {
+                    const diffMines = superSetCell.eff - subSetCell.eff;
+                    const diffSet = superSetCell.nbrs.filter(n => !subSetCell.nbrs.includes(n));
+
+                    if (diffSet.length > 0) {
+                        if (diffMines === diffSet.length) {
+                            for (const nKey of diffSet) {
+                                if (!safeCellsSet.has(nKey)) {
+                                    const parts = nKey.split(",");
+                                    const dr = parseInt(parts[0], 10);
+                                    const dc = parseInt(parts[1], 10);
+                                    
+                                    toggleFlagIJ(dr, dc);
+                                    logEvent(`[Recursive Logic]: Guaranteed MINE subset deduced at (${dr + 1}, ${dc + 1})`);
+                                    board.setValue(dr, dc, values.BOMBFLAGGED);
+                                    board.setClicked(dr, dc, true);
+                                    safeCellsSet.add(nKey);
+                                    progress = true;
+                                }
+                            }
+                        } else if (diffMines === 0) {
+                            for (const nKey of diffSet) {
+                                if (!safeCellsSet.has(nKey)) {
+                                    const parts = nKey.split(",");
+                                    const dr = parseInt(parts[0], 10);
+                                    const dc = parseInt(parts[1], 10);
+                                    
+                                    logEvent(`[Recursive Logic]: Guaranteed SAFE subset deduced at (${dr + 1}, ${dc + 1})`);
+                                    safeCells.push(new MineSweeperCell(dr, dc, values.BLANK));
+                                    safeCellsSet.add(nKey);
+                                    progress = true;
+                                }
+                            }
+                        } else if (diffMines > 0 && diffMines < diffSet.length) {
+                            diffSet.sort();
+                            const sig = diffSet.join('|');
+                            if (!knownSets.has(sig)) {
+                                knownSets.add(sig);
+                                boundaryCells.push({ eff: diffMines, nbrs: diffSet });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let headA = 0;
+        while (headA < boundaryCells.length) {
+            const cellA = boundaryCells[headA];
+            for (let b = 0; b < boundaryCells.length; b++) {
+                if (headA === b) continue;
+                const cellB = boundaryCells[b];
+                processSubset(cellA, cellB);
+                processSubset(cellB, cellA);
+            }
+            headA++;
+        }
+        
         return progress;
     }
 
