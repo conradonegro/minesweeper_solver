@@ -1,8 +1,7 @@
 /*
  * Minesweeper Solver via Double Set Single Point (DSSP) Algorithm
- * Refactored by Antigravity AI
  */
-(function() {
+(function () {
     // Utilities
     function getRndInteger(min, max) {
         return Math.floor(Math.random() * (max - min)) + min;
@@ -14,8 +13,8 @@
         OPEN5: 5, OPEN6: 6, OPEN7: 7, OPEN8: 8,
         BLANK: -1, BOMBFLAGGED: -2, BOMBDEATH: -3, BOMBREVEALED: -4
     };
-    
-    const movs = [[-1,-1], [-1,0], [-1,+1], [0,-1], [0,+1], [+1,-1], [+1,0], [+1,+1]];
+
+    const movs = [[-1, -1], [-1, 0], [-1, +1], [0, -1], [0, +1], [+1, -1], [+1, 0], [+1, +1]];
 
     /*
      * MineSweeper classes
@@ -62,13 +61,13 @@
      */
     let rows, cols, mines;
     let DOMNodes = [];
-    
+
     // Configurations
     let cfgDelayMs = 15;
     let cfgFirstMove = "center";
     let cfgDeadlockMove = "smart";
     let cfgAutoRestart = true;
-    
+
     // Statistics
     let numGames = 0, numMoves = 0;
     let totalWins = 0, totalLosses = 0;
@@ -85,13 +84,13 @@
     function loadConfig() {
         const d = document.getElementById("radoConfigDelay");
         if (d) cfgDelayMs = parseInt(d.value, 10) || 0;
-        
+
         const f = document.getElementById("radoConfigFirst");
         if (f) cfgFirstMove = f.value;
-        
+
         const dm = document.getElementById("radoConfigDeadlock");
         if (dm) cfgDeadlockMove = dm.value;
-        
+
         const a = document.getElementById("radoConfigAuto");
         if (a) cfgAutoRestart = a.checked;
     }
@@ -110,8 +109,8 @@
     function getValueFromDOM(i, j) {
         const node = DOMNodes[i][j];
         if (!node) return -1000;
-        
-        switch(node.className) {
+
+        switch (node.className) {
             case "square open0": return values.OPEN0;
             case "square open1": return values.OPEN1;
             case "square open2": return values.OPEN2;
@@ -157,10 +156,10 @@
     function myClick(element, b) {
         const btnCode = (b === "right") ? 2 : (b === "left" ? 0 : 1);
         const options = { bubbles: true, cancelable: true, button: btnCode };
-        
+
         element.dispatchEvent(new MouseEvent("mousedown", options));
         element.dispatchEvent(new MouseEvent("mouseup", options));
-        
+
         if (b === "left") {
             element.dispatchEvent(new MouseEvent("click", options));
         } else if (b === "right") {
@@ -172,7 +171,7 @@
         const expert = document.getElementById("expert");
         const intermediate = document.getElementById("intermediate");
         const beginner = document.getElementById("beginner");
-        
+
         if (expert && expert.checked) {
             rows = 16; cols = 30; mines = 99;
         } else if (intermediate && intermediate.checked) {
@@ -234,15 +233,15 @@
                     <div class="RadoSolverMessages" id="RadoSolverMessages"></div>
                 </div>
                 <div id="footerDiv" class="footerDiv">
-                    <marquee class="RadoSolverBanner" scrollamount="3">Made by RADOMAN (Antigravity Refactor)</marquee>
+                    <marquee class="RadoSolverBanner" scrollamount="3">RadoSolver</marquee>
                 </div>
             </div>
         `;
         document.body.insertAdjacentHTML('beforeend', html);
-        
+
         // Use an async wrapper to catch rejections (like aborts)
         document.getElementById("radoSolverBtn").addEventListener("click", () => {
-             solveDSSP().catch(err => logEvent("Info: " + err));
+            solveDSSP().catch(err => logEvent("Info: " + err));
         });
         document.getElementById("clearLogBtn").addEventListener("click", clearLog);
     }
@@ -277,13 +276,13 @@
         let target = e.target;
         if (target && target.className && target.className.includes("square")) {
             // Only capture left-clicks for the algorithm bridge
-            if (e.button !== 0) return; 
+            if (e.button !== 0) return;
 
             const parts = target.id.split("_");
             if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
                 const r = parseInt(parts[0], 10) - 1;
                 const c = parseInt(parts[1], 10) - 1;
-                
+
                 clickWaiterActive = false;
                 const boardEl = document.getElementById("game");
                 if (boardEl) boardEl.removeEventListener("mouseup", handleBoardClick, true);
@@ -301,7 +300,7 @@
                 logEvent("Failed to attach user click listener. Falling back to random.");
                 return resolve(null);
             }
-            
+
             logEvent("<strong style='color:orange;'>PAUSED: Waiting for human intervention. Click a square to continue execution.</strong>");
             clickWaiterActive = true;
             globalResolveClick = resolve;
@@ -316,7 +315,7 @@
     function checkWin(board) {
         let openCount = 0;
         let deathOrRevealedFound = false;
-        
+
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
                 const v = board.getValue(i, j);
@@ -327,7 +326,7 @@
                 }
             }
         }
-        
+
         if (deathOrRevealedFound) return false;
         return openCount === ((rows * cols) - mines);
     }
@@ -420,7 +419,7 @@
         let progress = false;
         const boundaryCells = [];
         const knownSets = new Set();
-        
+
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
                 const val = board.getValue(i, j);
@@ -455,7 +454,7 @@
                                     const parts = nKey.split(",");
                                     const dr = parseInt(parts[0], 10);
                                     const dc = parseInt(parts[1], 10);
-                                    
+
                                     toggleFlagIJ(dr, dc);
                                     logEvent(`[Recursive Logic]: Guaranteed MINE subset deduced at (${dr + 1}, ${dc + 1})`);
                                     board.setValue(dr, dc, values.BOMBFLAGGED);
@@ -470,7 +469,7 @@
                                     const parts = nKey.split(",");
                                     const dr = parseInt(parts[0], 10);
                                     const dc = parseInt(parts[1], 10);
-                                    
+
                                     logEvent(`[Recursive Logic]: Guaranteed SAFE subset deduced at (${dr + 1}, ${dc + 1})`);
                                     safeCells.push(new MineSweeperCell(dr, dc, values.BLANK));
                                     safeCellsSet.add(nKey);
@@ -501,7 +500,7 @@
             }
             headA++;
         }
-        
+
         return progress;
     }
 
@@ -529,8 +528,8 @@
             if (userMove) return userMove;
         } else if (cfgFirstMove === "corner") {
             const corners = [
-                {r: 0, c: 0}, {r: 0, c: cols - 1},
-                {r: rows - 1, c: 0}, {r: rows - 1, c: cols - 1}
+                { r: 0, c: 0 }, { r: 0, c: cols - 1 },
+                { r: rows - 1, c: 0 }, { r: rows - 1, c: cols - 1 }
             ];
             const t = corners[getRndInteger(0, corners.length)];
             return new MineSweeperCell(t.r, t.c, values.BLANK);
@@ -563,10 +562,10 @@
                 if (board.getValue(i, j) === values.BLANK) {
                     const cell = new MineSweeperCell(i, j, values.BLANK);
                     blanks.push(cell);
-                    
+
                     const isEdge = (i === 0 || i === rows - 1 || j === 0 || j === cols - 1);
                     const isCorner = ((i === 0 || i === rows - 1) && (j === 0 || j === cols - 1));
-                    
+
                     if (isCorner) corners.push(cell);
                     else if (isEdge) edges.push(cell);
                 }
@@ -574,7 +573,7 @@
         }
 
         if (blanks.length === 0) return null;
-        
+
         let pool = blanks;
         if (corners.length > 0) pool = corners;
         else if (edges.length > 0) pool = edges;
@@ -584,10 +583,10 @@
 
     async function getDeadlockMove(board) {
         if (cfgDeadlockMove === "wait") {
-             const userMove = await waitForUserClick();
-             if (userMove) return userMove;
+            const userMove = await waitForUserClick();
+            if (userMove) return userMove;
         } else if (cfgDeadlockMove === "random") {
-             return getRandomMovePure(board);
+            return getRandomMovePure(board);
         }
         return getRandomMoveSmart(board);
     }
@@ -624,12 +623,12 @@
             safeCells = [];
             safeCellsSet = new Set();
             questionableCells = [];
-            
+
             newGame();
-            
+
             // Re-bind DOM Nodes after new game generation to capture DOM shifts (if any)
             initDOMCache();
-            
+
             lost = false;
             win = false;
             numMoves = 0;
@@ -646,7 +645,7 @@
                 // If there is no safe choice available, evaluate subset logic before guessing
                 if (safeCells.length === 0) {
                     let doubleSetProgress = doubleSetEvaluate(board, safeCells, safeCellsSet);
-                    
+
                     if (doubleSetProgress && safeCells.length === 0) {
                         // Double-Set only found FLAGS. We must rescan Single-Point conditions first!
                         for (let i = 0; i < rows; i++) {
@@ -679,8 +678,8 @@
                 while (safeCells.length > 0 && !lost && !win) {
                     cell = safeCells.shift();
                     const key = `${cell.row},${cell.column}`;
-                    safeCellsSet.delete(key); 
-                    
+                    safeCellsSet.delete(key);
+
                     logEvent(`Opening cell: (${cell.row + 1}, ${cell.column + 1})`);
                     openIJ(cell.row, cell.column);
                     numMoves++;
@@ -722,7 +721,7 @@
                 questionableCells = questionableCells.filter(qCell => {
                     if (isAMN(board, qCell.row, qCell.column)) {
                         flagNeighbors(board, qCell.row, qCell.column, safeCellsSet);
-                        return false; 
+                        return false;
                     }
                     return true;
                 });
@@ -753,7 +752,7 @@
                 totalLosses++;
                 totalTimeToLose += gameTime;
             }
-            
+
             totalGuesses += currentRandomChoices;
             totalMoves += numMoves;
 
@@ -767,16 +766,16 @@
         logEvent("Total Games Played: " + numGames);
         logEvent("Total Games Won   : " + totalWins);
         logEvent("Total Games Lost  : " + totalLosses);
-        
+
         const winPercent = numGames > 0 ? (totalWins * 100 / numGames).toFixed(1) : 0;
         logEvent("Win %: " + winPercent);
-        
+
         if (totalWins > 0) {
-           logEvent("Fastest Win: " + totalFastestTimeWin.toFixed(2) + "s");
-           logEvent("Avg Time Wins : " + (totalTimeToWin / totalWins).toFixed(2) + "s");
+            logEvent("Fastest Win: " + totalFastestTimeWin.toFixed(2) + "s");
+            logEvent("Avg Time Wins : " + (totalTimeToWin / totalWins).toFixed(2) + "s");
         }
         if (totalLosses > 0) {
-             logEvent("Avg Time Loss : " + (totalTimeToLose / totalLosses).toFixed(2) + "s");
+            logEvent("Avg Time Loss : " + (totalTimeToLose / totalLosses).toFixed(2) + "s");
         }
         logEvent("Total Moves       : " + totalMoves);
         logEvent("Total Guesses     : " + totalGuesses);
