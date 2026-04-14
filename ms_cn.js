@@ -67,6 +67,9 @@
     let cfgFirstMove = "center";
     let cfgDeadlockMove = "smart";
     let cfgAutoRestart = true;
+    let cfgDarkMode = true;
+    let cfgChording = false;
+    let cfgHeatmap = false;
 
     // Statistics
     let numGames = 0, numMoves = 0;
@@ -93,6 +96,15 @@
 
         const a = document.getElementById("radoConfigAuto");
         if (a) cfgAutoRestart = a.checked;
+
+        const dk = document.getElementById("radoConfigDarkMode");
+        if (dk) cfgDarkMode = dk.checked;
+
+        const ch = document.getElementById("radoConfigChording");
+        if (ch) cfgChording = ch.checked;
+
+        const hm = document.getElementById("radoConfigHeatmap");
+        if (hm) cfgHeatmap = hm.checked;
     }
 
     function initDOMCache() {
@@ -150,6 +162,7 @@
         const e = document.getElementById("face");
         if (e) myClick(e, "left");
         numGames++;
+        setTimeout(applyDarkMode, 50);
     }
 
     // Modern dispatch mapping
@@ -164,6 +177,84 @@
             element.dispatchEvent(new MouseEvent("click", options));
         } else if (b === "right") {
             element.dispatchEvent(new MouseEvent("contextmenu", options));
+        }
+    }
+
+    function chordIJ(i, j) {
+        const e = DOMNodes[i][j];
+        if (e && e.className.indexOf("open") !== -1) {
+            e.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, buttons: 3 }));
+            e.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, buttons: 0 }));
+        }
+    }
+
+    function applyDarkMode() {
+        const styleId = "RadoSolverDarkMode";
+        const existing = document.getElementById(styleId);
+        if (cfgDarkMode && !existing) {
+            const css = `
+                body { background-color: #222 !important; color: #ddd !important; }
+                table, .window { background-color: #333 !important; border-color: #555 !important; }
+                .square { display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-family: sans-serif; font-size: 14px; box-sizing: border-box; }
+                .square.blank { background-image: none !important; background-color: #444 !important; border: 1px solid #222 !important; }
+                .square.open0, .square.open1, .square.open2, .square.open3, .square.open4, .square.open5, .square.open6, .square.open7, .square.open8 { background-image: none !important; background-color: #111 !important; border: 1px solid #222 !important; }
+                .square.open1 { color: #4488FF !important; }
+                .square.open2 { color: #22AA22 !important; }
+                .square.open3 { color: #FF4444 !important; }
+                .square.open4 { color: #8844FF !important; }
+                .square.open5 { color: #FF8844 !important; }
+                .square.bombflagged { background-color: #AA4444 !important; }
+            `;
+            const style = document.createElement("style");
+            style.id = styleId;
+            style.innerHTML = css;
+            document.head.appendChild(style);
+        } else if (!cfgDarkMode && existing) {
+            existing.remove();
+        }
+    }
+
+    function applyHeatmap(board) {
+        if (!cfgHeatmap) return;
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
+                if (board.getValue(i, j) === values.BLANK) {
+                    let maxRatio = 0;
+                    let hasClues = false;
+                    for (let f = 0; f < 8; f++) {
+                        const auxR = i + movs[f][0];
+                        const auxC = j + movs[f][1];
+                        if (auxR >= 0 && auxR < rows && auxC >= 0 && auxC < cols) {
+                            const val = board.getValue(auxR, auxC);
+                            if (val >= values.OPEN1 && val <= values.OPEN8) {
+                                hasClues = true;
+                                const eff = effectiveLabel(board, auxR, auxC);
+                                const ufn = countUnflaggedNeighbors(board, auxR, auxC);
+                                if (ufn > 0) {
+                                    const ratio = eff / ufn;
+                                    if (ratio > maxRatio) maxRatio = ratio;
+                                }
+                            }
+                        }
+                    }
+                    if (hasClues) {
+                        const e = DOMNodes[i][j];
+                        if (e) {
+                            const hue = (1 - maxRatio) * 120; 
+                            e.style.backgroundColor = `hsl(${hue}, 100%, 40%)`;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    function clearHeatmap() {
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
+                const e = DOMNodes[i][j];
+                if (e && e.style.backgroundColor) e.style.backgroundColor = "";
+            }
         }
     }
 
@@ -215,6 +306,7 @@
                         <label>Deadlock Move:</label>
                         <select id="radoConfigDeadlock">
                             <option value="smart">Smart Guess</option>
+                            <option value="hold-my-beer">Hold My Beer</option>
                             <option value="random">Pure Random</option>
                             <option value="wait">Wait for Click</option>
                         </select>
@@ -222,6 +314,16 @@
                     <div style="margin-top: 5px;">
                         <label>Auto-Restart Loss:</label>
                         <input type="checkbox" id="radoConfigAuto" checked>
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label>Dark Mode:</label>
+                        <input type="checkbox" id="radoConfigDarkMode" checked>
+                        <label style="margin-left: 5px;">Chording:</label>
+                        <input type="checkbox" id="radoConfigChording">
+                    </div>
+                    <div style="margin-top: 5px;">
+                        <label>Prob Heatmap (Wait):</label>
+                        <input type="checkbox" id="radoConfigHeatmap">
                     </div>
                 </div>
 
@@ -583,10 +685,34 @@
 
     async function getDeadlockMove(board) {
         if (cfgDeadlockMove === "wait") {
+            applyHeatmap(board);
             const userMove = await waitForUserClick();
+            clearHeatmap();
             if (userMove) return userMove;
-        } else if (cfgDeadlockMove === "random") {
-            return getRandomMovePure(board);
+        } else if (cfgDeadlockMove === "hold-my-beer") {
+            let trapFound = false;
+            for (let i = 0; i < rows && !trapFound; i++) {
+                for (let j = 0; j < cols && !trapFound; j++) {
+                    const val = board.getValue(i, j);
+                    if (val >= values.OPEN1 && val <= values.OPEN8) {
+                        if (effectiveLabel(board, i, j) === 1 && countUnflaggedNeighbors(board, i, j) === 2) {
+                            trapFound = true;
+                        }
+                    }
+                }
+            }
+            if (trapFound) {
+                logEvent("<span style='color:orange; font-weight:bold;'>[Hold My Beer]: Pure 50/50 Trap detected! Handing the leap of faith over to you...</span>");
+                applyHeatmap(board);
+                const userMove = await waitForUserClick();
+                clearHeatmap();
+                if (userMove) return userMove;
+            }
+        }
+
+        if (cfgDeadlockMove === "random" || cfgDeadlockMove === "hold-my-beer") {
+            // Note: If hold-my-beer didn't pause (because it wasn't a 50/50 trap), we fallback to smart guess below.
+            if (cfgDeadlockMove === "random") return getRandomMovePure(board);
         }
         return getRandomMoveSmart(board);
     }
@@ -622,6 +748,7 @@
             board = new MineSweeperBoard(rows, cols, mines);
             safeCells = [];
             safeCellsSet = new Set();
+            let safeChords = [];
             questionableCells = [];
 
             newGame();
@@ -653,7 +780,10 @@
                                 const val = board.getValue(i, j);
                                 if (val >= values.OPEN1 && val <= values.OPEN8) {
                                     if (isAMN(board, i, j)) flagNeighbors(board, i, j, safeCellsSet);
-                                    if (isAFN(board, i, j)) getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
+                                    if (isAFN(board, i, j) && countUnflaggedNeighbors(board, i, j) > 0) {
+                                        if (cfgChording) safeChords.push(new MineSweeperCell(i, j, val));
+                                        else getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
+                                    }
                                 }
                             }
                         }
@@ -708,8 +838,42 @@
                         for (let j = 0; j < cols; j++) {
                             const val = board.getValue(i, j);
                             if (val >= values.OPEN1 && val <= values.OPEN8) {
-                                if (isAFN(board, i, j)) {
-                                    getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
+                                if (isAFN(board, i, j) && countUnflaggedNeighbors(board, i, j) > 0) {
+                                    if (cfgChording) safeChords.push(new MineSweeperCell(i, j, val));
+                                    else getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
+                                } else {
+                                    questionableCells.push(new MineSweeperCell(i, j, val));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Chording Parent Batch Cycle (Activated if Queue Exists)
+                while (safeChords.length > 0 && !lost && !win) {
+                    const parent = safeChords.shift();
+                    // Double check saturation hasn't changed (e.g. from a parallel click)
+                    if (countUnflaggedNeighbors(board, parent.row, parent.column) === 0) continue;
+
+                    logEvent(`Chording cascade blast at: (${parent.row + 1}, ${parent.column + 1})`);
+                    chordIJ(parent.row, parent.column);
+                    numMoves++;
+
+                    if (cfgDelayMs > 0) {
+                        await sleep(cfgDelayMs / 1000);
+                    }
+
+                    updateBoard(board);
+                    if (checkWin(board)) { win = true; break; }
+
+                    questionableCells = [];
+                    for (let i = 0; i < rows; i++) {
+                        for (let j = 0; j < cols; j++) {
+                            const val = board.getValue(i, j);
+                            if (val >= values.OPEN1 && val <= values.OPEN8) {
+                                if (isAFN(board, i, j) && countUnflaggedNeighbors(board, i, j) > 0) {
+                                    if (cfgChording) safeChords.push(new MineSweeperCell(i, j, val));
+                                    else getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
                                 } else {
                                     questionableCells.push(new MineSweeperCell(i, j, val));
                                 }
@@ -728,7 +892,10 @@
 
                 questionableCells = questionableCells.filter(qCell => {
                     if (isAFN(board, qCell.row, qCell.column)) {
-                        getUnmarkedNeighbors(board, qCell.row, qCell.column, safeCells, safeCellsSet);
+                        if (countUnflaggedNeighbors(board, qCell.row, qCell.column) > 0) {
+                            if (cfgChording) safeChords.push(qCell);
+                            else getUnmarkedNeighbors(board, qCell.row, qCell.column, safeCells, safeCellsSet);
+                        }
                         return false;
                     }
                     return true;
