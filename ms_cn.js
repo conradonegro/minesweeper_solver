@@ -181,36 +181,24 @@
     }
 
     function chordIJ(i, j) {
-        const e = DOMNodes[i][j];
-        if (e && e.className.indexOf("open") !== -1) {
-            e.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, buttons: 3 }));
-            e.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, buttons: 0 }));
+        for (let f = 0; f < 8; f++) {
+            const auxR = i + movs[f][0];
+            const auxC = j + movs[f][1];
+            if (auxR >= 0 && auxR < rows && auxC >= 0 && auxC < cols) {
+                const e = DOMNodes[auxR][auxC];
+                if (e && e.className === "square blank") {
+                    myClick(e, "left");
+                }
+            }
         }
     }
 
     function applyDarkMode() {
-        const styleId = "RadoSolverDarkMode";
-        const existing = document.getElementById(styleId);
-        if (cfgDarkMode && !existing) {
-            const css = `
-                body { background-color: #222 !important; color: #ddd !important; }
-                table, .window { background-color: #333 !important; border-color: #555 !important; }
-                .square { display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-family: sans-serif; font-size: 14px; box-sizing: border-box; }
-                .square.blank { background-image: none !important; background-color: #444 !important; border: 1px solid #222 !important; }
-                .square.open0, .square.open1, .square.open2, .square.open3, .square.open4, .square.open5, .square.open6, .square.open7, .square.open8 { background-image: none !important; background-color: #111 !important; border: 1px solid #222 !important; }
-                .square.open1 { color: #4488FF !important; }
-                .square.open2 { color: #22AA22 !important; }
-                .square.open3 { color: #FF4444 !important; }
-                .square.open4 { color: #8844FF !important; }
-                .square.open5 { color: #FF8844 !important; }
-                .square.bombflagged { background-color: #AA4444 !important; }
-            `;
-            const style = document.createElement("style");
-            style.id = styleId;
-            style.innerHTML = css;
-            document.head.appendChild(style);
-        } else if (!cfgDarkMode && existing) {
-            existing.remove();
+        const table = document.getElementById("game");
+        if (cfgDarkMode) {
+            if (table) table.style.filter = "invert(0.92) hue-rotate(180deg)";
+        } else {
+            if (table) table.style.filter = "";
         }
     }
 
@@ -239,9 +227,14 @@
                     }
                     if (hasClues) {
                         const e = DOMNodes[i][j];
-                        if (e) {
-                            const hue = (1 - maxRatio) * 120; 
-                            e.style.backgroundColor = `hsl(${hue}, 100%, 40%)`;
+                        if (e && !e.querySelector('.rado-heatmap')) {
+                            const hue = (1 - maxRatio) * 120;
+                            const d = document.createElement('div');
+                            d.className = 'rado-heatmap';
+                            // Safe injection overlay ensuring underlying sprite visibility
+                            d.style.cssText = `position: absolute; width: 16px; height: 16px; background-color: hsla(${hue}, 100%, 40%, 0.6); z-index: 100; pointer-events: none;`;
+                            e.style.position = 'relative'; 
+                            e.appendChild(d);
                         }
                     }
                 }
@@ -253,7 +246,10 @@
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
                 const e = DOMNodes[i][j];
-                if (e && e.style.backgroundColor) e.style.backgroundColor = "";
+                if (e) {
+                    const heat = e.querySelector('.rado-heatmap');
+                    if (heat) heat.remove();
+                }
             }
         }
     }
@@ -346,6 +342,14 @@
             solveDSSP().catch(err => logEvent("Info: " + err));
         });
         document.getElementById("clearLogBtn").addEventListener("click", clearLog);
+
+        const dkToggle = document.getElementById("radoConfigDarkMode");
+        if (dkToggle) {
+            dkToggle.addEventListener("change", (e) => {
+                cfgDarkMode = e.target.checked;
+                applyDarkMode();
+            });
+        }
     }
 
     function logEvent(s) {
@@ -690,28 +694,34 @@
             clearHeatmap();
             if (userMove) return userMove;
         } else if (cfgDeadlockMove === "hold-my-beer") {
-            let trapFound = false;
-            for (let i = 0; i < rows && !trapFound; i++) {
-                for (let j = 0; j < cols && !trapFound; j++) {
-                    const val = board.getValue(i, j);
-                    if (val >= values.OPEN1 && val <= values.OPEN8) {
-                        if (effectiveLabel(board, i, j) === 1 && countUnflaggedNeighbors(board, i, j) === 2) {
-                            trapFound = true;
+            const move = getRandomMoveSmart(board);
+            if (move) {
+                let is5050 = false;
+                for (let f = 0; f < 8; f++) {
+                    const auxR = move.row + movs[f][0];
+                    const auxC = move.column + movs[f][1];
+                    if (auxR >= 0 && auxR < rows && auxC >= 0 && auxC < cols) {
+                        const val = board.getValue(auxR, auxC);
+                        if (val >= values.OPEN1 && val <= values.OPEN8) {
+                            if (effectiveLabel(board, auxR, auxC) === 1 && countUnflaggedNeighbors(board, auxR, auxC) === 2) {
+                                is5050 = true;
+                            }
                         }
                     }
                 }
+                if (is5050) {
+                    logEvent("<span style='color:orange; font-weight:bold;'>[Hold My Beer]: Smart target touches a 50/50 trap! Handing the leap of faith over to you...</span>");
+                    applyHeatmap(board);
+                    const userMove = await waitForUserClick();
+                    clearHeatmap();
+                    if (userMove) return userMove;
+                }
             }
-            if (trapFound) {
-                logEvent("<span style='color:orange; font-weight:bold;'>[Hold My Beer]: Pure 50/50 Trap detected! Handing the leap of faith over to you...</span>");
-                applyHeatmap(board);
-                const userMove = await waitForUserClick();
-                clearHeatmap();
-                if (userMove) return userMove;
-            }
+            return move;
         }
 
         if (cfgDeadlockMove === "random" || cfgDeadlockMove === "hold-my-beer") {
-            // Note: If hold-my-beer didn't pause (because it wasn't a 50/50 trap), we fallback to smart guess below.
+            // Note: If hold-my-beer didn't pause (because it wasn't a 50/50 trap), we fallback to smart guess.
             if (cfgDeadlockMove === "random") return getRandomMovePure(board);
         }
         return getRandomMoveSmart(board);
@@ -953,5 +963,7 @@
     }
 
     createControlBox();
+    loadConfig();
+    applyDarkMode();
 
 })();
