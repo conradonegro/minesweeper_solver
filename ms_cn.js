@@ -67,9 +67,10 @@
     let cfgFirstMove = "center";
     let cfgDeadlockMove = "smart";
     let cfgAutoRestart = true;
-    let cfgDarkMode = true;
+    let cfgDarkMode = false;
     let cfgChording = false;
     let cfgHeatmap = false;
+    let cfgHoldMyBeer = false;
 
     // Statistics
     let numGames = 0, numMoves = 0;
@@ -105,6 +106,9 @@
 
         const hm = document.getElementById("radoConfigHeatmap");
         if (hm) cfgHeatmap = hm.checked;
+
+        const hmb = document.getElementById("radoConfigHoldMyBeer");
+        if (hmb) cfgHoldMyBeer = hmb.checked;
     }
 
     function initDOMCache() {
@@ -194,11 +198,16 @@
     }
 
     function applyDarkMode() {
-        const table = document.getElementById("game");
+        const body = document.body;
+        const box = document.getElementById("RadoSolverControlBox");
         if (cfgDarkMode) {
-            if (table) table.style.filter = "invert(0.92) hue-rotate(180deg)";
+            body.style.filter = "invert(0.92) hue-rotate(180deg)";
+            body.style.backgroundColor = "#222"; 
+            if (box) box.style.filter = "invert(1) hue-rotate(180deg)";
         } else {
-            if (table) table.style.filter = "";
+            body.style.filter = "";
+            body.style.backgroundColor = "";
+            if (box) box.style.filter = "";
         }
     }
 
@@ -271,12 +280,11 @@
     }
 
     function createControlBox() {
-        const existing = document.getElementById("RadoSolverControlBox");
-        if (existing) existing.remove();
+        if (document.getElementById("RadoSolverControlBox")) return;
 
         const html = `
             <div id="RadoSolverControlBox" class="RadoSolverControlBox">
-                <div id="headerDiv" class="headerDiv">
+                <div class="headerDiv" id="headerDiv">
                     <p class="RadoSolverTitle">RadoSolver Controls</p>
                 </div>
                 <!-- Control Panel configurations -->
@@ -297,10 +305,11 @@
                         <label>Deadlock Move:</label>
                         <select id="radoConfigDeadlock">
                             <option value="smart">Smart Guess</option>
-                            <option value="hold-my-beer">Hold My Beer</option>
                             <option value="random">Pure Random</option>
                             <option value="wait">Wait for Click</option>
                         </select>
+                        <label style="margin-left: 5px;" title="Pause on exact 50/50 traps">Hold My Beer:</label>
+                        <input type="checkbox" id="radoConfigHoldMyBeer">
                     </div>
                     <div style="margin-top: 5px;">
                         <label>Auto-Restart Loss:</label>
@@ -308,7 +317,7 @@
                     </div>
                     <div style="margin-top: 5px;">
                         <label>Dark Mode:</label>
-                        <input type="checkbox" id="radoConfigDarkMode" checked>
+                        <input type="checkbox" id="radoConfigDarkMode">
                         <label style="margin-left: 5px;">Chording:</label>
                         <input type="checkbox" id="radoConfigChording">
                     </div>
@@ -688,38 +697,38 @@
             const userMove = await waitForUserClick();
             clearHeatmap();
             if (userMove) return userMove;
-        } else if (cfgDeadlockMove === "hold-my-beer") {
-            const move = getRandomMoveSmart(board);
-            if (move) {
-                let is5050 = false;
-                for (let f = 0; f < 8; f++) {
-                    const auxR = move.row + movs[f][0];
-                    const auxC = move.column + movs[f][1];
-                    if (auxR >= 0 && auxR < rows && auxC >= 0 && auxC < cols) {
-                        const val = board.getValue(auxR, auxC);
-                        if (val >= values.OPEN1 && val <= values.OPEN8) {
-                            if (effectiveLabel(board, auxR, auxC) === 1 && countUnflaggedNeighbors(board, auxR, auxC) === 2) {
-                                is5050 = true;
-                            }
+        }
+
+        let move = null;
+        if (cfgDeadlockMove === "random") {
+            move = getRandomMovePure(board);
+        } else {
+            move = getRandomMoveSmart(board);
+        }
+
+        if (cfgHoldMyBeer && move) {
+            let is5050 = false;
+            for (let f = 0; f < 8; f++) {
+                const auxR = move.row + movs[f][0];
+                const auxC = move.column + movs[f][1];
+                if (auxR >= 0 && auxR < rows && auxC >= 0 && auxC < cols) {
+                    const val = board.getValue(auxR, auxC);
+                    if (val >= values.OPEN1 && val <= values.OPEN8) {
+                        if (effectiveLabel(board, auxR, auxC) === 1 && countUnflaggedNeighbors(board, auxR, auxC) === 2) {
+                            is5050 = true;
                         }
                     }
                 }
-                if (is5050) {
-                    logEvent("<span style='color:orange; font-weight:bold;'>[Hold My Beer]: Smart target touches a 50/50 trap! Handing the leap of faith over to you...</span>");
-                    applyHeatmap(board);
-                    const userMove = await waitForUserClick();
-                    clearHeatmap();
-                    if (userMove) return userMove;
-                }
             }
-            return move;
+            if (is5050) {
+                logEvent("<span style='color:orange; font-weight:bold;'>[Hold My Beer]: Target touches a 50/50 trap! Handing leap of faith to you...</span>");
+                applyHeatmap(board);
+                const userMove = await waitForUserClick();
+                clearHeatmap();
+                if (userMove) return userMove;
+            }
         }
-
-        if (cfgDeadlockMove === "random" || cfgDeadlockMove === "hold-my-beer") {
-            // Note: If hold-my-beer didn't pause (because it wasn't a 50/50 trap), we fallback to smart guess.
-            if (cfgDeadlockMove === "random") return getRandomMovePure(board);
-        }
-        return getRandomMoveSmart(board);
+        return move;
     }
 
     /*
