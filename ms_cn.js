@@ -227,14 +227,10 @@
                     }
                     if (hasClues) {
                         const e = DOMNodes[i][j];
-                        if (e && !e.querySelector('.rado-heatmap')) {
+                        if (e) {
                             const hue = (1 - maxRatio) * 120;
-                            const d = document.createElement('div');
-                            d.className = 'rado-heatmap';
-                            // Safe injection overlay ensuring underlying sprite visibility
-                            d.style.cssText = `position: absolute; width: 16px; height: 16px; background-color: hsla(${hue}, 100%, 40%, 0.6); z-index: 100; pointer-events: none;`;
-                            e.style.position = 'relative'; 
-                            e.appendChild(d);
+                            // Inset shadows render above background-images in CSS, avoiding sprite-sheet inheritance
+                            e.style.boxShadow = `inset 0 0 0 16px hsla(${hue}, 100%, 40%, 0.6)`;
                         }
                     }
                 }
@@ -246,9 +242,8 @@
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
                 const e = DOMNodes[i][j];
-                if (e) {
-                    const heat = e.querySelector('.rado-heatmap');
-                    if (heat) heat.remove();
+                if (e && e.style.boxShadow) {
+                    e.style.boxShadow = "";
                 }
             }
         }
