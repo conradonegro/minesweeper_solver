@@ -784,10 +784,10 @@
             // Main loop
             while (!lost && !win) {
                 // If there is no safe choice available, evaluate subset logic before guessing
-                if (safeCells.length === 0) {
+                if (safeCells.length === 0 && safeChords.length === 0) {
                     let doubleSetProgress = doubleSetEvaluate(board, safeCells, safeCellsSet);
 
-                    if (doubleSetProgress && safeCells.length === 0) {
+                    if (doubleSetProgress && safeCells.length === 0 && safeChords.length === 0) {
                         // Double-Set only found FLAGS. We must rescan Single-Point conditions first!
                         for (let i = 0; i < rows; i++) {
                             for (let j = 0; j < cols; j++) {
@@ -805,7 +805,7 @@
                 }
 
                 // Still deadlocked? Execute User Configured Guess Strategy
-                if (safeCells.length === 0) {
+                if (safeCells.length === 0 && safeChords.length === 0) {
                     const randomChoice = await getDeadlockMove(board);
                     if (!randomChoice) {
                         logEvent("Fatal Deadlock: No valid targets found.");
@@ -852,6 +852,7 @@
                         for (let j = 0; j < cols; j++) {
                             const val = board.getValue(i, j);
                             if (val >= values.OPEN1 && val <= values.OPEN8) {
+                                if (isAMN(board, i, j)) flagNeighbors(board, i, j, safeCellsSet);
                                 if (isAFN(board, i, j) && countUnflaggedNeighbors(board, i, j) > 0) {
                                     if (cfgChording) safeChords.push(new MineSweeperCell(i, j, val));
                                     else getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
@@ -885,6 +886,7 @@
                         for (let j = 0; j < cols; j++) {
                             const val = board.getValue(i, j);
                             if (val >= values.OPEN1 && val <= values.OPEN8) {
+                                if (isAMN(board, i, j)) flagNeighbors(board, i, j, safeCellsSet);
                                 if (isAFN(board, i, j) && countUnflaggedNeighbors(board, i, j) > 0) {
                                     if (cfgChording) safeChords.push(new MineSweeperCell(i, j, val));
                                     else getUnmarkedNeighbors(board, i, j, safeCells, safeCellsSet);
